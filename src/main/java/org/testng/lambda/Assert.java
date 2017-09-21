@@ -1,6 +1,7 @@
 package org.testng.lambda;
 
 import static java.lang.String.join;
+import static java.util.Arrays.asList;
 import static java.util.stream.Collectors.toList;
 
 import java.util.ArrayList;
@@ -8,29 +9,43 @@ import java.util.List;
 
 public class Assert {
 
+	private static final List<AssertListener> suiteAssertListeners = new ArrayList<>();
+
 	protected Assert() {
 		// hide constructor
 	}
 
 	private static class AssertListenerDecorator implements Assertion {
 		private Assertion assertion;
-		private AssertListener listener;
+		private List<AssertListener> listeners;
 
 		public AssertListenerDecorator(Assertion assertion, AssertListener listener) {
+			this(assertion, asList(listener));
+		}
+
+		public AssertListenerDecorator(Assertion assertion, List<AssertListener> listeners) {
 			this.assertion = assertion;
-			this.listener = listener;
+			this.listeners = listeners;
 		}
 
 		public void run() {
 			try {
-				listener.onBeforeAssert();
+				for (AssertListener listener : listeners) {
+					listener.onBeforeAssert();
+				}
 				assertion.run();
-				listener.onAssertSuccess();
+				for (AssertListener listener : listeners) {
+					listener.onAssertSuccess();
+				}
 			} catch (AssertionError error) {
-				listener.onAssertFailure(error);
+				for (AssertListener listener : listeners) {
+					listener.onAssertFailure(error);
+				}
 				throw error;
 			} finally {
-				listener.onAfterAssert();
+				for (AssertListener listener : listeners) {
+					listener.onAfterAssert();
+				}
 			}
 		}
 	}
@@ -59,96 +74,64 @@ public class Assert {
 		}
 	}
 
+	public static void addSuiteAssertListener(AssertListener assertListener) {
+		suiteAssertListeners.add(assertListener);
+	}
+
 	public static Assertion assertTrue(boolean condition) {
-		return () -> org.testng.Assert.assertTrue(condition);
+		return new AssertListenerDecorator(
+			() -> org.testng.Assert.assertTrue(condition)
+			, suiteAssertListeners
+		);
 	}
 
 	public static Assertion assertTrue(boolean condition, AssertListener listener) {
-		return new AssertListenerDecorator(assertTrue(condition), listener);
+		return new AssertListenerDecorator(
+			new AssertListenerDecorator(assertTrue(condition), listener)
+			, suiteAssertListeners
+		);
 	}
 
 	public static Assertion assertTrue(boolean condition, String message) {
-		return () -> org.testng.Assert.assertTrue(condition, message);
+		return new AssertListenerDecorator(
+			() -> org.testng.Assert.assertTrue(condition, message)
+			, suiteAssertListeners
+		);
 	}
 
 	public static Assertion assertTrue(boolean condition, String message, AssertListener listener) {
-		return new AssertListenerDecorator(assertTrue(condition, message), listener);
+		return new AssertListenerDecorator(
+			new AssertListenerDecorator(assertTrue(condition, message), listener)
+			, suiteAssertListeners
+		);
 	}
 
 	public static Assertion assertEquals(int actual, int expected, String message) {
-		return () -> org.testng.Assert.assertEquals(actual, expected, message);	
+		return new AssertListenerDecorator(
+			() -> org.testng.Assert.assertEquals(actual, expected, message)
+			, suiteAssertListeners
+		);
 	}
 
 	public static Assertion assertEquals(int actual, int expected, String message, AssertListener listener) {
-		return new AssertListenerDecorator(assertEquals(actual, expected, message), listener);
+		return new AssertListenerDecorator(
+			new AssertListenerDecorator(assertEquals(actual, expected, message), listener)
+			, suiteAssertListeners
+		);
 	}
 
 	public static void assertAll(Assertion... assertions) {
-		new CompositeAssertion(assertions).run();
+		new AssertListenerDecorator(
+			new CompositeAssertion(assertions)
+			, suiteAssertListeners
+		).run();
 	}
 
 	public static void assertAll(AssertListener listener, Assertion... assertions) {
 		new AssertListenerDecorator(
-			  new CompositeAssertion(assertions) 
-			, listener
-		).run();
-	}
-
-	public static void main(String[] args) {
-
-		AssertListener assertListener = new AssertListener() {
-
-			@Override
-			public void onAssertSuccess() {
-				System.out.println("success");
-			}
-
-			@Override
-			public void onAssertFailure(AssertionError ex) {
-				System.out.println("failure");
-			}
-
-			@Override
-			public void onBeforeAssert() {
-				System.out.println("before");
-			}
-
-			@Override
-			public void onAfterAssert() {
-				System.out.println("after");
-			}
-		};
-
-		AssertListener groupAssertListener = new AssertListener() {
-
-			@Override
-			public void onAssertSuccess() {
-				System.out.println("group success");
-			}
-
-			@Override
-			public void onAssertFailure(AssertionError ex) {
-				System.out.println("group failure");
-			}
-
-			@Override
-			public void onBeforeAssert() {
-				System.out.println("group before");
-			}
-
-			@Override
-			public void onAfterAssert() {
-				System.out.println("group after");
-			}
-		};
-
-		assertAll(
-			  groupAssertListener
-			, assertTrue(false)
-			, assertTrue(false, "false with message")
-			, assertEquals(1, 2, "1 is not 2")
-			, assertTrue(true, assertListener)
-			, assertTrue(false, assertListener)
-		);
+			new AssertListenerDecorator(
+				  new CompositeAssertion(assertions) 
+				, listener
+		), suiteAssertListeners).run();
 	}
 }
